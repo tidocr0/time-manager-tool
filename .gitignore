@@ -1,0 +1,19 @@
+# ---- Vue / Node ----
+node_modules/
+dist/
+.vite/
+*.local
+.env
+
+# ---- .NET ----
+bin/
+obj/
+*.user
+appsettings.Development.json
+
+# ---- IDE / OS ----
+.vs/
+.vscode/
+.idea/
+*.DS_Store
+Thumbs.db
