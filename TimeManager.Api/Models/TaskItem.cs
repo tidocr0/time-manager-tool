@@ -1,7 +1,10 @@
+using System.ComponentModel.DataAnnotations;
+
 namespace TimeManager.Api.Models;
 
 public class TaskItem
 {
+    [Key]
     public int TaskId { get; set; }
     public string Title { get; set; } = null!;
     public string? Note { get; set; }
@@ -10,6 +13,7 @@ public class TaskItem
     public DateOnly DeadlineDate { get; set; }
     public int? EstimatedDays { get; set; }
     public bool IsDone { get; set; }
+    public DateOnly? CompletedDate { get; set; }
     public bool IsRecurring { get; set; }
     public byte? RecurrenceDayOfWeek { get; set; }
     public DateTime CreatedAt { get; set; }

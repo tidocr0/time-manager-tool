@@ -23,7 +23,8 @@ public class TasksController : ControllerBase
     {
         return await _context.Tasks
             .Include(t => t.Category)
-            .Where(t => t.DeadlineDate == date)
+            .Where(t => t.DeadlineDate.AddDays(-(t.EstimatedDays ?? 0)) <= date &&
+                        (!t.IsDone || (t.CompletedDate.HasValue && date <= t.CompletedDate.Value)))
             .ToListAsync();
     }
 
@@ -111,6 +112,15 @@ public class TasksController : ControllerBase
             return NotFound();
 
         task.IsDone = !task.IsDone;
+        if (task.IsDone)
+        {
+            task.CompletedDate = DateOnly.FromDateTime(DateTime.Today);
+        }
+        else
+        {
+            task.CompletedDate = null;
+        }
+
         await _context.SaveChangesAsync();
 
         return NoContent();
