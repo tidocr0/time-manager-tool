@@ -23,7 +23,7 @@ public class TasksController : ControllerBase
     {
         return await _context.Tasks
             .Include(t => t.Category)
-            .Where(t => t.DeadlineDate.AddDays(-(t.EstimatedDays ?? 0)) <= date &&
+            .Where(t => (t.StartDate ?? t.DeadlineDate) <= date &&
                         (!t.IsDone || (t.CompletedDate.HasValue && date <= t.CompletedDate.Value)))
             .ToListAsync();
     }
@@ -45,7 +45,7 @@ public class TasksController : ControllerBase
     {
         return await _context.Tasks
             .Include(t => t.Category)
-            .Where(t => !t.IsDone && t.DeadlineDate.AddDays(-(t.EstimatedDays ?? 0)) <= date)
+            .Where(t => !t.IsDone && (t.StartDate ?? t.DeadlineDate) <= date)
             .OrderByDescending(t => t.Priority)
             .ThenBy(t => t.DeadlineDate)
             .ToListAsync();
@@ -58,6 +58,9 @@ public class TasksController : ControllerBase
         if (!ModelState.IsValid)
             return BadRequest(ModelState);
 
+        if (dto.StartDate.HasValue && dto.StartDate > dto.DeadlineDate)
+            return BadRequest("StartDate cannot be after DeadlineDate.");
+
         var task = new TaskItem
         {
             Title = dto.Title,
@@ -65,6 +68,8 @@ public class TasksController : ControllerBase
             CategoryId = dto.CategoryId,
             Priority = dto.Priority,
             DeadlineDate = dto.DeadlineDate,
+            StartDate = dto.StartDate,
+            DeadlineTime = dto.DeadlineTime,
             EstimatedDays = dto.EstimatedDays,
             IsDone = false,
             IsRecurring = dto.IsRecurring,
@@ -85,6 +90,9 @@ public class TasksController : ControllerBase
         if (!ModelState.IsValid)
             return BadRequest(ModelState);
 
+        if (dto.StartDate.HasValue && dto.StartDate > dto.DeadlineDate)
+            return BadRequest("StartDate cannot be after DeadlineDate.");
+
         var task = await _context.Tasks.FindAsync(id);
         if (task == null)
             return NotFound();
@@ -94,6 +102,8 @@ public class TasksController : ControllerBase
         task.CategoryId = dto.CategoryId;
         task.Priority = dto.Priority;
         task.DeadlineDate = dto.DeadlineDate;
+        task.StartDate = dto.StartDate;
+        task.DeadlineTime = dto.DeadlineTime;
         task.EstimatedDays = dto.EstimatedDays;
         task.IsDone = dto.IsDone;
         task.IsRecurring = dto.IsRecurring;

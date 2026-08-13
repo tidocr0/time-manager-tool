@@ -10,3 +10,4 @@ export const createTask = (data) => api.post('/tasks', data);
 export const updateTask = (id, data) => api.put(`/tasks/${id}`, data);
 export const toggleTaskDone = (id) => api.patch(`/tasks/${id}/toggle-done`);
 export const deleteTask = (id) => api.delete(`/tasks/${id}`);
+export const getTaskAlerts = (date) => api.get(`/tasks/alerts?date=${date}`);

@@ -10,9 +10,30 @@
       <button class="add-btn" @click="openAddModal">+</button>
     </div>
 
+    <div class="filters-container">
+      <div class="filter-group">
+        <label>Danh mục</label>
+        <select v-model="filterCategory">
+          <option value="all">Tất cả</option>
+          <option v-for="cat in categories" :key="cat.categoryId" :value="cat.categoryId">
+            {{ cat.name }}
+          </option>
+        </select>
+      </div>
+      
+      <div class="filter-group">
+        <label>Mức độ</label>
+        <select v-model="filterPriority">
+          <option value="all">Tất cả</option>
+          <option :value="1">Khẩn</option>
+          <option :value="0">Bình thường</option>
+        </select>
+      </div>
+    </div>
+
     <div class="task-list">
       <div 
-        v-for="task in tasks" 
+        v-for="task in filteredAndSortedTasks" 
         :key="task.taskId" 
         class="task-item"
         :class="{ 'is-done': task.isDone, 'clickable': true }"
@@ -54,7 +75,7 @@
         </div>
       </div>
       
-      <div v-if="tasks.length === 0" class="empty-state">
+      <div v-if="filteredAndSortedTasks.length === 0" class="empty-state">
         Không có công việc nào cho hôm nay!
       </div>
     </div>
@@ -71,13 +92,12 @@
             <span class="detail-value">{{ newTask.title }}</span>
           </div>
           <div class="detail-row" v-if="newTask.note">
-            <span class="detail-label">Ghi chú</span>
+            <span class="detail-label">Việc cần làm</span>
             <span class="detail-value note-value">{{ newTask.note }}</span>
           </div>
           <div class="detail-row">
             <span class="detail-label">Danh mục</span>
             <span class="detail-value">
-              <span class="category-dot" :style="{ backgroundColor: getCategoryColor(newTask.categoryId) }"></span>
               {{ getCategoryName(newTask.categoryId) }}
             </span>
           </div>
@@ -87,11 +107,11 @@
           </div>
           <div class="detail-row">
             <span class="detail-label">Ngày hạn</span>
-            <span class="detail-value">{{ formatDateStr(newTask.deadlineDate) }}</span>
+            <span class="detail-value">{{ formatDeadlineStr(newTask.deadlineDateTime?.split('T')[0], newTask.deadlineDateTime?.split('T')[1]) }}</span>
           </div>
-          <div class="detail-row" v-if="newTask.estimatedDays">
-            <span class="detail-label">Số ngày cần làm</span>
-            <span class="detail-value">{{ newTask.estimatedDays }} ngày</span>
+          <div class="detail-row" v-if="newTask.startDate">
+            <span class="detail-label">Ngày bắt đầu</span>
+            <span class="detail-value">{{ formatDateStr(newTask.startDate) }}</span>
           </div>
           
           <div class="modal-actions">
@@ -107,7 +127,7 @@
           </div>
           
           <div class="form-group">
-            <label>Ghi chú</label>
+            <label>Việc cần làm</label>
             <textarea v-model="newTask.note" rows="3" placeholder="Chi tiết thêm..."></textarea>
           </div>
           
@@ -132,13 +152,13 @@
           
           <div class="form-row">
             <div class="form-group">
-              <label>Ngày hạn</label>
-              <input type="date" v-model="newTask.deadlineDate" required />
+              <label>Ngày bắt đầu</label>
+              <input type="date" v-model="newTask.startDate" />
             </div>
             
             <div class="form-group">
-              <label>Số ngày cần làm</label>
-              <input type="number" v-model="newTask.estimatedDays" min="1" placeholder="Tuỳ chọn" />
+              <label>Ngày hạn</label>
+              <input type="datetime-local" v-model="newTask.deadlineDateTime" required />
             </div>
           </div>
 
@@ -153,8 +173,8 @@
 </template>
 
 <script>
-import { ref, onMounted, computed } from 'vue';
-import { getCategories, getTasksByDate, createTask, updateTask, toggleTaskDone, deleteTask } from '../services/api';
+import { ref, onMounted, onUnmounted, computed } from 'vue';
+import { getCategories, getTasksByDate, createTask, updateTask, toggleTaskDone, deleteTask, getTaskAlerts } from '../services/api';
 
 export default {
   name: 'DayView',
@@ -169,14 +189,19 @@ export default {
     // Default form state
     const defaultDate = new Date().toISOString().split('T')[0];
     const currentDate = ref(defaultDate);
+    let notificationInterval = null;
+    let midnightTimeout = null;
+
+    const filterCategory = ref('all');
+    const filterPriority = ref('all');
     
     const initialForm = {
       title: '',
       note: '',
       categoryId: null,
       priority: 0,
-      deadlineDate: defaultDate,
-      estimatedDays: null,
+      deadlineDateTime: '',
+      startDate: null,
       isRecurring: false,
       recurrenceDayOfWeek: null
     };
@@ -230,8 +255,22 @@ export default {
       return `${d}/${m}/${y}`;
     };
 
-    const getDeadlineStatusInfo = (task) => {
-      if (!task.deadlineDate) return { text: '', class: '' };
+    const formatDeadlineStr = (dateStr, timeStr) => {
+      if (!dateStr) return '';
+      const [y, m, d] = dateStr.split('T')[0].split('-');
+      const targetDate = new Date(y, m - 1, d);
+      const dayOfWeek = targetDate.getDay() === 0 ? 'Chủ nhật' : `Thứ ${targetDate.getDay() + 1}`;
+      const dateString = `${d}/${m}/${y}`;
+      
+      if (timeStr) {
+        const hm = timeStr.split(':').slice(0, 2).join(':');
+        return `${dayOfWeek}, ${dateString} - ${hm}`;
+      }
+      return `${dayOfWeek}, ${dateString}`;
+    };
+
+    const getTaskDiffDays = (task) => {
+      if (!task.deadlineDate) return 999999;
       
       const [cy, cm, cd] = currentDate.value.split('-');
       const current = new Date(cy, cm - 1, cd);
@@ -240,16 +279,40 @@ export default {
       const deadline = new Date(dy, dm - 1, dd);
       
       const diffTime = deadline - current;
-      const diffDays = Math.round(diffTime / (1000 * 60 * 60 * 24));
+      return Math.round(diffTime / (1000 * 60 * 60 * 24));
+    };
+
+    const getDeadlineStatusInfo = (task) => {
+      if (!task.deadlineDate) return { text: '', class: '' };
+      
+      const diffDays = getTaskDiffDays(task);
       
       if (diffDays < 0) {
         return { text: `Quá hạn ${-diffDays} ngày`, class: 'overdue' };
       } else if (diffDays === 0) {
         return { text: 'Đến hạn hôm nay', class: 'today' };
       } else {
+        if (diffDays > 14) {
+          const weeks = Math.round(diffDays / 7);
+          return { text: `Còn ${weeks} tuần`, class: 'normal' };
+        }
         return { text: `Còn ${diffDays} ngày`, class: 'normal' };
       }
     };
+
+    const filteredAndSortedTasks = computed(() => {
+      let result = tasks.value;
+      
+      if (filterCategory.value !== 'all') {
+        result = result.filter(t => t.categoryId === filterCategory.value);
+      }
+      
+      if (filterPriority.value !== 'all') {
+        result = result.filter(t => t.priority === filterPriority.value);
+      }
+      
+      return result.slice().sort((a, b) => getTaskDiffDays(a) - getTaskDiffDays(b));
+    });
 
     const loadData = async () => {
       try {
@@ -271,6 +334,53 @@ export default {
         tasks.value = res.data;
       } catch (error) {
         console.error('Error loading tasks:', error);
+      }
+    };
+
+    const requestNotificationPermission = async () => {
+      if (!('Notification' in window)) return;
+      
+      const permission = await Notification.requestPermission();
+      if (permission === 'granted') {
+        checkAlertsForNotification();
+        notificationInterval = setInterval(() => {
+          checkAlertsForNotification();
+        }, 1800000);
+      }
+    };
+
+    const checkAlertsForNotification = async () => {
+      try {
+        const todayStr = new Date().toISOString().split('T')[0];
+        const res = await getTaskAlerts(todayStr);
+        if (res.data && res.data.length > 0) {
+          const storageKey = `notifiedTasks_${todayStr}`;
+          const storedIds = JSON.parse(localStorage.getItem(storageKey) || '[]');
+          
+          const newTasks = res.data.filter(t => !storedIds.includes(t.taskId));
+          
+          if (newTasks.length > 0) {
+            let bodyText = res.data.slice(0, 5).map(task => {
+              const priorityText = task.priority === 1 ? 'Khẩn' : 'Bình thường';
+              const statusText = getDeadlineStatusInfo(task).text;
+              return `[${priorityText}] ${task.title} - ${statusText}`;
+            }).join('\n');
+            
+            if (res.data.length > 5) {
+              bodyText += `\nvà ${res.data.length - 5} việc khác`;
+            }
+
+            new Notification('Việc cần chú ý hôm nay', {
+              body: bodyText,
+              requireInteraction: true
+            });
+            
+            const updatedIds = [...storedIds, ...newTasks.map(t => t.taskId)];
+            localStorage.setItem(storageKey, JSON.stringify(updatedIds));
+          }
+        }
+      } catch (error) {
+        console.error('Error fetching alerts for notification:', error);
       }
     };
 
@@ -319,14 +429,35 @@ export default {
     };
 
     const submitTask = async () => {
+      const ddt = newTask.value.deadlineDateTime || '';
+      let dDate = '';
+      let dTime = null;
+
+      if (ddt) {
+        if (ddt.includes('T')) {
+          const parts = ddt.split('T');
+          dDate = parts[0];
+          dTime = parts[1];
+        } else {
+          dDate = ddt;
+        }
+      }
+
+      const effectiveStartDate = newTask.value.startDate || dDate;
+      if (effectiveStartDate > dDate) {
+        alert('Ngày bắt đầu không được sau ngày hết hạn!');
+        return;
+      }
+
       try {
         const payload = {
           title: newTask.value.title,
           note: newTask.value.note,
           categoryId: newTask.value.categoryId,
           priority: newTask.value.priority,
-          deadlineDate: newTask.value.deadlineDate, // input type="date" always returns yyyy-MM-dd
-          estimatedDays: newTask.value.estimatedDays ? parseInt(newTask.value.estimatedDays) : null,
+          deadlineDate: dDate,
+          deadlineTime: dTime,
+          startDate: newTask.value.startDate || null,
           isRecurring: newTask.value.isRecurring,
           recurrenceDayOfWeek: newTask.value.recurrenceDayOfWeek
         };
@@ -350,13 +481,20 @@ export default {
       isReadOnly.value = true;
       isEditing.value = false;
       editTaskId.value = task.taskId;
+      
+      let ddt = task.deadlineDate.split('T')[0];
+      if (task.deadlineTime) {
+         const hm = task.deadlineTime.split(':').slice(0, 2).join(':');
+         ddt += `T${hm}`;
+      }
+
       newTask.value = {
         title: task.title,
         note: task.note,
         categoryId: task.categoryId,
         priority: task.priority,
-        deadlineDate: task.deadlineDate,
-        estimatedDays: task.estimatedDays,
+        deadlineDateTime: ddt,
+        startDate: task.startDate || currentDate.value,
         isRecurring: task.isRecurring,
         recurrenceDayOfWeek: task.recurrenceDayOfWeek,
         isDone: task.isDone
@@ -373,7 +511,11 @@ export default {
       isEditing.value = false;
       isReadOnly.value = false;
       editTaskId.value = null;
-      newTask.value = { ...initialForm, categoryId: categories.value.length ? categories.value[0].categoryId : null };
+      newTask.value = { 
+        ...initialForm, 
+        categoryId: categories.value.length ? categories.value[0].categoryId : null,
+        startDate: currentDate.value
+      };
       showModal.value = true;
     };
 
@@ -382,12 +524,45 @@ export default {
       newTask.value = { ...initialForm, categoryId: categories.value.length ? categories.value[0].categoryId : null };
     };
 
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        checkAlertsForNotification();
+      }
+    };
+
+    const scheduleMidnightCheck = () => {
+      const now = new Date();
+      const nextMidnight = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, 0, 0, 0, 0);
+      const msUntilMidnight = nextMidnight.getTime() - now.getTime();
+
+      midnightTimeout = setTimeout(() => {
+        checkAlertsForNotification();
+        scheduleMidnightCheck();
+      }, msUntilMidnight);
+    };
+
     onMounted(() => {
       loadData();
+      requestNotificationPermission();
+      document.addEventListener('visibilitychange', handleVisibilityChange);
+      scheduleMidnightCheck();
+    });
+
+    onUnmounted(() => {
+      if (notificationInterval) {
+        clearInterval(notificationInterval);
+      }
+      if (midnightTimeout) {
+        clearTimeout(midnightTimeout);
+      }
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
     });
 
     return {
       tasks,
+      filteredAndSortedTasks,
+      filterCategory,
+      filterPriority,
       categories,
       showModal,
       isEditing,
@@ -400,6 +575,7 @@ export default {
       getCategoryName,
       getCategoryColor,
       formatDateStr,
+      formatDeadlineStr,
       getDeadlineStatusInfo,
       handleToggleDone,
       handleDelete,
@@ -433,9 +609,28 @@ export default {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 30px;
+  margin-bottom: 20px;
   border-bottom: 2px solid #f0f0f5;
   padding-bottom: 20px;
+}
+
+.filters-container {
+  display: flex;
+  gap: 16px;
+  margin-bottom: 20px;
+}
+
+.filters-container .filter-group {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+.filters-container label {
+  font-size: 13px;
+  font-weight: 600;
+  color: #475569;
+  margin-bottom: 6px;
 }
 
 .date-controls {
@@ -814,8 +1009,10 @@ input:focus, select:focus, textarea:focus {
 
 .detail-row {
   display: flex;
-  justify-content: space-between;
+  flex-direction: column;
+  justify-content: flex-start;
   align-items: flex-start;
+  gap: 6px;
   padding: 14px 0;
   border-bottom: 1px solid #f1f5f9;
   width: 100%;
@@ -831,24 +1028,24 @@ input:focus, select:focus, textarea:focus {
   color: #94a3b8;
   font-weight: 500;
   flex-shrink: 0;
-  width: 120px;
+  width: auto;
 }
 
 .detail-value {
   font-size: 14px;
   color: #1e293b;
   font-weight: 500;
-  text-align: right;
+  text-align: left;
   flex: 1;
   display: flex;
-  align-items: flex-start; /* Ensure multi-line text aligns well */
-  justify-content: flex-end;
+  align-items: center;
+  justify-content: flex-start;
   gap: 8px;
   min-width: 0;
 }
 
 .detail-value.note-value {
-  text-align: right;
+  text-align: left;
   white-space: pre-wrap;
   font-weight: 400;
   color: #475569;
@@ -862,6 +1059,7 @@ input:focus, select:focus, textarea:focus {
   height: 10px;
   border-radius: 50%;
   display: inline-block;
+  flex-shrink: 0;
 }
 
 .urgent-text {
