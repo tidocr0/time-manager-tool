@@ -61,26 +61,68 @@ public class TasksController : ControllerBase
         if (dto.StartDate.HasValue && dto.StartDate > dto.DeadlineDate)
             return BadRequest("StartDate cannot be after DeadlineDate.");
 
-        var task = new TaskItem
+        if (dto.IsRecurring && dto.RecurrenceDayOfWeek.HasValue)
         {
-            Title = dto.Title,
-            Note = dto.Note,
-            CategoryId = dto.CategoryId,
-            Priority = dto.Priority,
-            DeadlineDate = dto.DeadlineDate,
-            StartDate = dto.StartDate,
-            DeadlineTime = dto.DeadlineTime,
-            EstimatedDays = dto.EstimatedDays,
-            IsDone = false,
-            IsRecurring = dto.IsRecurring,
-            RecurrenceDayOfWeek = dto.RecurrenceDayOfWeek,
-            CreatedAt = DateTime.UtcNow
-        };
+            var recurringGroupId = Guid.NewGuid();
+            var tasks = new List<TaskItem>();
+            var baseDeadline = dto.DeadlineDate;
+            var baseStart = dto.StartDate;
 
-        _context.Tasks.Add(task);
-        await _context.SaveChangesAsync();
+            for (int i = 0; i < 8; i++)
+            {
+                var newDeadline = baseDeadline.AddDays(i * 7);
+                DateOnly? newStart = null;
+                if (baseStart.HasValue)
+                {
+                    newStart = baseStart.Value.AddDays(i * 7);
+                }
 
-        return CreatedAtAction(nameof(GetTasks), new { date = task.DeadlineDate }, task);
+                tasks.Add(new TaskItem
+                {
+                    Title = dto.Title,
+                    Note = dto.Note,
+                    CategoryId = dto.CategoryId,
+                    Priority = dto.Priority,
+                    DeadlineDate = newDeadline,
+                    StartDate = newStart,
+                    DeadlineTime = dto.DeadlineTime,
+                    EstimatedDays = dto.EstimatedDays,
+                    IsDone = false,
+                    IsRecurring = dto.IsRecurring,
+                    RecurrenceDayOfWeek = dto.RecurrenceDayOfWeek,
+                    RecurringGroupId = recurringGroupId,
+                    CreatedAt = DateTime.UtcNow
+                });
+            }
+
+            _context.Tasks.AddRange(tasks);
+            await _context.SaveChangesAsync();
+
+            return CreatedAtAction(nameof(GetTasks), new { date = tasks[0].DeadlineDate }, tasks[0]);
+        }
+        else
+        {
+            var task = new TaskItem
+            {
+                Title = dto.Title,
+                Note = dto.Note,
+                CategoryId = dto.CategoryId,
+                Priority = dto.Priority,
+                DeadlineDate = dto.DeadlineDate,
+                StartDate = dto.StartDate,
+                DeadlineTime = dto.DeadlineTime,
+                EstimatedDays = dto.EstimatedDays,
+                IsDone = false,
+                IsRecurring = dto.IsRecurring,
+                RecurrenceDayOfWeek = dto.RecurrenceDayOfWeek,
+                CreatedAt = DateTime.UtcNow
+            };
+
+            _context.Tasks.Add(task);
+            await _context.SaveChangesAsync();
+
+            return CreatedAtAction(nameof(GetTasks), new { date = task.DeadlineDate }, task);
+        }
     }
 
     // PUT /api/tasks/{id}
@@ -115,7 +157,7 @@ public class TasksController : ControllerBase
 
     // PATCH /api/tasks/{id}/toggle-done
     [HttpPatch("{id}/toggle-done")]
-    public async Task<IActionResult> ToggleTaskDone(int id)
+    public async Task<IActionResult> ToggleTaskDone(int id, [FromQuery] DateOnly? completedDate = null)
     {
         var task = await _context.Tasks.FindAsync(id);
         if (task == null)
@@ -124,7 +166,7 @@ public class TasksController : ControllerBase
         task.IsDone = !task.IsDone;
         if (task.IsDone)
         {
-            task.CompletedDate = DateOnly.FromDateTime(DateTime.Today);
+            task.CompletedDate = completedDate ?? DateOnly.FromDateTime(DateTime.Today);
         }
         else
         {

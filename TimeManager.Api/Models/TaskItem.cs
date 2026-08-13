@@ -18,6 +18,7 @@ public class TaskItem
     public DateOnly? CompletedDate { get; set; }
     public bool IsRecurring { get; set; }
     public byte? RecurrenceDayOfWeek { get; set; }
+    public Guid? RecurringGroupId { get; set; }
     public DateTime CreatedAt { get; set; }
 
     public Category Category { get; set; } = null!;

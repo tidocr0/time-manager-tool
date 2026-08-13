@@ -114,6 +114,11 @@
             <span class="detail-value">{{ formatDateStr(newTask.startDate) }}</span>
           </div>
           
+          <div class="detail-row" v-if="newTask.isRecurring">
+            <span class="detail-label">Lặp lại</span>
+            <span class="detail-value">Hàng tuần</span>
+          </div>
+          
           <div class="modal-actions">
             <button type="button" class="btn-cancel" @click="closeModal">Đóng</button>
             <button type="button" class="btn-submit" @click="switchToEdit">Sửa công việc</button>
@@ -160,6 +165,16 @@
               <label>Ngày hạn</label>
               <input type="datetime-local" v-model="newTask.deadlineDateTime" required />
             </div>
+          </div>
+
+          <div class="form-group" v-if="!isEditing" style="margin-top: -4px;">
+            <label style="display: flex; align-items: center; gap: 8px; font-weight: 500; cursor: pointer; flex-direction: row;">
+              <input type="checkbox" v-model="newTask.isRecurring" style="width: 16px; height: 16px; margin: 0; cursor: pointer;" />
+              Lặp lại hàng tuần
+            </label>
+            <p v-if="newTask.isRecurring" style="font-size: 12px; color: #64748b; margin: 6px 0 0 24px; font-weight: 400;">
+              Sẽ tự tạo 8 tuần liên tiếp vào {{ recurringDayText }}, bắt đầu từ ngày đã chọn.
+            </p>
           </div>
 
           <div class="modal-actions">
@@ -243,6 +258,26 @@ export default {
       const cat = categories.value.find(c => c.categoryId === id);
       return cat ? cat.name : 'Không xác định';
     };
+
+    const recurringDayText = computed(() => {
+      const ddt = newTask.value.deadlineDateTime;
+      let dDate = '';
+      if (ddt) {
+        if (ddt.includes('T')) {
+          dDate = ddt.split('T')[0];
+        } else {
+          dDate = ddt;
+        }
+      }
+      
+      const targetDateStr = newTask.value.startDate || dDate;
+      if (!targetDateStr) return 'ngày đã chọn';
+      
+      const [y, m, d] = targetDateStr.split('-');
+      const targetDate = new Date(y, m - 1, d);
+      if (isNaN(targetDate)) return 'ngày đã chọn';
+      return targetDate.getDay() === 0 ? 'Chủ nhật' : `Thứ ${targetDate.getDay() + 1}`;
+    });
 
     const getCategoryColor = (id) => {
       const cat = categories.value.find(c => c.categoryId === id);
@@ -414,7 +449,8 @@ export default {
       // Optimistic update
       task.isDone = !task.isDone;
       try {
-        await toggleTaskDone(task.taskId);
+        await toggleTaskDone(task.taskId, currentDate.value);
+        await loadTasks();
       } catch (error) {
         // Revert on error
         task.isDone = !task.isDone;
@@ -455,6 +491,13 @@ export default {
       }
 
       try {
+        if (!isEditing.value && newTask.value.isRecurring && effectiveStartDate) {
+          const [y, m, d] = effectiveStartDate.split('-');
+          newTask.value.recurrenceDayOfWeek = new Date(y, m - 1, d).getDay();
+        } else {
+          newTask.value.recurrenceDayOfWeek = null;
+        }
+
         const payload = {
           title: newTask.value.title,
           note: newTask.value.note,
@@ -472,6 +515,9 @@ export default {
           await updateTask(editTaskId.value, payload);
         } else {
           await createTask(payload);
+          if (payload.isRecurring) {
+            alert('Đã tạo 8 công việc lặp lại hàng tuần');
+          }
         }
         
         await loadTasks();
@@ -579,6 +625,7 @@ export default {
       formattedDate,
       getCategoryName,
       getCategoryColor,
+      recurringDayText,
       formatDateStr,
       formatDeadlineStr,
       getDeadlineStatusInfo,
@@ -791,10 +838,9 @@ export default {
 .task-note-preview {
   font-size: 13px;
   color: #64748b;
-  white-space: pre-line;
-  word-wrap: break-word;
-  word-break: break-all;
-  overflow-wrap: anywhere;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
   text-align: left;
 }
 
@@ -839,6 +885,13 @@ export default {
   border-radius: 20px;
   font-weight: 600;
   justify-self: start;
+  width: 130px;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  white-space: nowrap;
 }
 
 .deadline-label.normal {
