@@ -360,20 +360,25 @@ export default {
           const newTasks = res.data.filter(t => !storedIds.includes(t.taskId));
           
           if (newTasks.length > 0) {
-            let bodyText = res.data.slice(0, 5).map(task => {
+            let bodyText = res.data.slice(0, 8).map(task => {
               const priorityText = task.priority === 1 ? 'Khẩn' : 'Bình thường';
               const statusText = getDeadlineStatusInfo(task).text;
               return `[${priorityText}] ${task.title} - ${statusText}`;
             }).join('\n');
             
-            if (res.data.length > 5) {
-              bodyText += `\nvà ${res.data.length - 5} việc khác`;
+            if (res.data.length > 8) {
+              bodyText += `\nvà ${res.data.length - 8} việc khác`;
             }
 
-            new Notification('Việc cần chú ý hôm nay', {
+            const notification = new Notification('Việc cần chú ý hôm nay', {
               body: bodyText,
               requireInteraction: true
             });
+
+            notification.onclick = () => {
+              window.focus();
+              notification.close();
+            };
             
             const updatedIds = [...storedIds, ...newTasks.map(t => t.taskId)];
             localStorage.setItem(storageKey, JSON.stringify(updatedIds));
